@@ -1,6 +1,9 @@
+require('dotenv').config()
 import nodegit from 'nodegit'
 import { resolve, join } from 'path'
 import { ensureDir, writeFile } from 'fs-extra'
+
+const { GITHUB_PASSWORD } = process.env
 
 /**
  * Opens git repository by specified path
@@ -92,6 +95,12 @@ async function deleteTagByName(repo, tagName) {
   await repo.deleteTagByName(tagName)
 }
 
+async function checkout(repo, branch = 'master') {
+  await repo.checkoutBranch(branch, {
+    checkoutStrategy: nodegit.Checkout.STRATEGY.FORCE
+  })
+}
+
 const createRepoAndCommit = async () => {
   const repo = await createRepository(resolve('/tmp/gitops'))
   const workdir = repo.workdir()
@@ -139,16 +148,17 @@ const createRepoAndCommit = async () => {
  *
  * @param {String} url- repo remote url
  * @param {String} path - path to clone repo to
+ * @param {String} [username] - optional username
+ * @param {String} [password] - optional password
  */
-const cloneRepoAndCheckout = async (url, path) => {
-  return nodegit.Clone(url, path, {
+const cloneRepo = async (url, path, username, password) => {
+  return await nodegit.Clone(url, path, {
     fetchOpts: {
       callbacks: {
-        certificateCheck: () => {
-          // github will fail cert check on some OSX machines
-          // this overrides that check
-          return 0
-        }
+        // github will fail cert check on some OSX machines, this overrides that check
+        certificateCheck: () => 0,
+        credentials: username && password ? () => nodegit.Cred.userpassPlaintextNew(username, password) : null,
+        transferProgress: progress => console.log('clone progress:', progress)
       }
     }
   })
@@ -156,7 +166,18 @@ const cloneRepoAndCheckout = async (url, path) => {
 
 ;(async () => {
   try {
-    await cloneRepoAndCheckout('https://github.com/kling-igor/lua-stack', resolve('/tmp', 'lua-stack'))
+    const path = resolve('/tmp', 'lua-stack')
+    const repo = await cloneRepo(
+      'https://github.com/kling-igor/lua-stack',
+      path,
+      'klingigor@gmail.com',
+      GITHUB_PASSWORD
+    )
+
+    await checkout(repo)
+
+    const branch = await repo.getCurrentBranch()
+    console.log(`On ${branch.shorthand()} ${branch.target()}`)
   } catch (e) {
     console.error(e)
   }
