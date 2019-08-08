@@ -14,9 +14,6 @@ async function openRepository(path) {
   return nodegit.Repository.open(path)
 }
 
-// repository.workdir()
-// repository.refreshIndex();
-
 /**
  * Creates git repository in specified path
  * @param {String} path
@@ -27,7 +24,7 @@ async function createRepository(path) {
 }
 
 /**
- *
+ * Refreshes index
  * @param {Repository} repository
  * @returns {Index}
  */
@@ -36,7 +33,7 @@ async function refreshIndex(repository) {
 }
 
 /**
- *
+ * Adds path to index
  * @param {Index} index
  * @param {String} path
  */
@@ -45,7 +42,7 @@ async function addToIndex(index, path) {
 }
 
 /**
- *
+ * Writes to index
  * @param {Index} index
  * @returns {OID}
  */
@@ -80,24 +77,85 @@ function fileStatus(file) {
   return result
 }
 
+/**
+ * Gets file statuses
+ * @param {Repository} repo
+ * @returns {{path:String, status:String}[]}
+ */
 async function status(repo) {
   const statuses = await repo.getStatus()
   return statuses.map(file => ({ path: file.path(), status: fileStatus(file) }))
 }
 
-async function createTag(repo, commitId, tagName, tagMessage) {
-  const oid = nodegit.Oid.fromString(commitId)
-  const tag = await repo.createTag(oid, tagName, tagMessage)
+/**
+ * Creates tag on commit
+ * @param {Repository} repo
+ * @param {{String | Oid}} commit
+ * @param {String} tagName
+ * @param {String} tagMessage
+ */
+async function createTag(repo, commit, tagName, tagMessage) {
+  let oid
+  if (typeof commit === 'string') {
+    oid = nodegit.Oid.fromString(commit)
+  }
+  const tag = await repo.createTag(oid || commit, tagName, tagMessage)
   console.log('TAG:', tag)
 }
 
+/**
+ * Creates branch
+ * @param {Repository} repo
+ * @param {String} name
+ * @param {String | Oid} commit
+ * @returns {Reference}
+ */
+async function createBranch(repo, name, commit) {
+  let oid
+  if (typeof commit === 'string') {
+    oid = nodegit.Oid.fromString(commit)
+  }
+
+  return await repo.createBranch(name, oid || commit, 0 /* do not overwrite if exists */)
+}
+
+/**
+ * Deletes tag
+ * @param {Repository} repo
+ * @param {String} tagName
+ */
 async function deleteTagByName(repo, tagName) {
   await repo.deleteTagByName(tagName)
 }
 
+/**
+ * Checkouts on specified branch (rejecting working directory changes)
+ * @param {Repository} repo
+ * @param {String} [branch='master']
+ */
 async function checkout(repo, branch = 'master') {
   await repo.checkoutBranch(branch, {
     checkoutStrategy: nodegit.Checkout.STRATEGY.FORCE
+  })
+}
+
+/**
+ * Clones remote repository
+ * @param {String} url- repo remote url
+ * @param {String} path - path to clone repo to
+ * @param {String} [username] - optional username
+ * @param {String} [password] - optional password
+ */
+const cloneRepo = async (url, path, username, password) => {
+  return await nodegit.Clone(url, path, {
+    fetchOpts: {
+      callbacks: {
+        // github will fail cert check on some OSX machines, this overrides that check
+        certificateCheck: () => 0,
+        credentials: username && password ? () => nodegit.Cred.userpassPlaintextNew(username, password) : null,
+        transferProgress: progress => console.log('clone progress:', progress)
+      }
+    }
   })
 }
 
@@ -123,7 +181,7 @@ const createRepoAndCommit = async () => {
   // const head = await nodegit.Reference.nameToId(repo, 'HEAD')
   // console.log(head.toString())
   // const parentCommit = await repo.getCommit(head)
-  const author = nodegit.Signature.now('Igor Kling', 'klingiv@altarix.ru')
+  const author = nodegit.Signature.now('Igor Kling', 'klingigor@gmail.com')
   const committer = author
 
   const commit = await repo.createCommit(
@@ -144,40 +202,24 @@ const createRepoAndCommit = async () => {
   // await deleteTagByName(repo, 'MYTAG')
 }
 
-/**
- *
- * @param {String} url- repo remote url
- * @param {String} path - path to clone repo to
- * @param {String} [username] - optional username
- * @param {String} [password] - optional password
- */
-const cloneRepo = async (url, path, username, password) => {
-  return await nodegit.Clone(url, path, {
-    fetchOpts: {
-      callbacks: {
-        // github will fail cert check on some OSX machines, this overrides that check
-        certificateCheck: () => 0,
-        credentials: username && password ? () => nodegit.Cred.userpassPlaintextNew(username, password) : null,
-        transferProgress: progress => console.log('clone progress:', progress)
-      }
-    }
-  })
+const cloneRepositoryAndCreateBranch = async () => {
+  const path = resolve('/tmp', 'lua-stack')
+  const repo = await cloneRepo('https://github.com/kling-igor/lua-stack', path, 'klingigor@gmail.com', GITHUB_PASSWORD)
+
+  await checkout(repo)
+
+  const branchRef = await repo.getCurrentBranch()
+  const branchName = branchRef.shorthand()
+  console.log(`On ${branchName} ${branchRef.target()}`)
+
+  const commit = await repo.getBranchCommit(branchName)
+  const newBranchRef = await createBranch(repo, 'mybranch', commit)
+  console.log(`On ${newBranchRef.shorthand()} ${newBranchRef.target()}`)
 }
 
 ;(async () => {
   try {
-    const path = resolve('/tmp', 'lua-stack')
-    const repo = await cloneRepo(
-      'https://github.com/kling-igor/lua-stack',
-      path,
-      'klingigor@gmail.com',
-      GITHUB_PASSWORD
-    )
-
-    await checkout(repo)
-
-    const branch = await repo.getCurrentBranch()
-    console.log(`On ${branch.shorthand()} ${branch.target()}`)
+    await cloneRepositoryAndCreateBranch()
   } catch (e) {
     console.error(e)
   }
