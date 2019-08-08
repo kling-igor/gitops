@@ -92,48 +92,71 @@ async function deleteTagByName(repo, tagName) {
   await repo.deleteTagByName(tagName)
 }
 
+const createRepoAndCommit = async () => {
+  const repo = await createRepository(resolve('/tmp/gitops'))
+  const workdir = repo.workdir()
+
+  await ensureDir(join(workdir, 'src'))
+  writeFile(join(workdir, 'src', 'index.js'), 'console.log("hello world")\n')
+
+  const index = await refreshIndex(repo)
+
+  await addToIndex(index, join('src', 'index.js'))
+
+  const treeOid = await writeIndex(index)
+
+  const statuses = await status(repo)
+  for (const { path, status } of statuses) {
+    console.log(`${status} ${path}`)
+  }
+
+  // there is no HEAD in new repo
+  // const head = await nodegit.Reference.nameToId(repo, 'HEAD')
+  // console.log(head.toString())
+  // const parentCommit = await repo.getCommit(head)
+  const author = nodegit.Signature.now('Igor Kling', 'klingiv@altarix.ru')
+  const committer = author
+
+  const commit = await repo.createCommit(
+    'HEAD' /* or null to do not update the HEAD */,
+    author,
+    committer,
+    'commit message',
+    treeOid,
+    []
+  ) // first commit has no parents
+  console.log('commitId:', commit.toString())
+
+  const head = await nodegit.Reference.nameToId(repo, 'HEAD')
+  console.log('HEAD:', head.toString())
+
+  // await createTag(repo, commit.toString(), 'MYTAG', 'Tag message...')
+
+  // await deleteTagByName(repo, 'MYTAG')
+}
+
+/**
+ *
+ * @param {String} url- repo remote url
+ * @param {String} path - path to clone repo to
+ */
+const cloneRepoAndCheckout = async (url, path) => {
+  return nodegit.Clone(url, path, {
+    fetchOpts: {
+      callbacks: {
+        certificateCheck: () => {
+          // github will fail cert check on some OSX machines
+          // this overrides that check
+          return 0
+        }
+      }
+    }
+  })
+}
+
 ;(async () => {
   try {
-    const repo = await createRepository(resolve('/tmp/gitops'))
-    const workdir = repo.workdir()
-
-    await ensureDir(join(workdir, 'src'))
-    writeFile(join(workdir, 'src', 'index.js'), 'console.log("hello world")\n')
-
-    const index = await refreshIndex(repo)
-
-    await addToIndex(index, join('src', 'index.js'))
-
-    const treeOid = await writeIndex(index)
-
-    const statuses = await status(repo)
-    for (const { path, status } of statuses) {
-      console.log(`${status} ${path}`)
-    }
-
-    // there is no HEAD in new repo
-    // const head = await nodegit.Reference.nameToId(repo, 'HEAD')
-    // console.log(head.toString())
-    // const parentCommit = await repo.getCommit(head)
-    const author = nodegit.Signature.now('Igor Kling', 'klingiv@altarix.ru')
-    const committer = author
-
-    const commit = await repo.createCommit(
-      'HEAD' /* or null to do not update the HEAD */,
-      author,
-      committer,
-      'commit message',
-      treeOid,
-      []
-    ) // first commit has no parents
-    console.log('commitId:', commit.toString())
-
-    const head = await nodegit.Reference.nameToId(repo, 'HEAD')
-    console.log('HEAD:', head.toString())
-
-    // await createTag(repo, commit.toString(), 'MYTAG', 'Tag message...')
-
-    // await deleteTagByName(repo, 'MYTAG')
+    await cloneRepoAndCheckout('https://github.com/kling-igor/lua-stack', resolve('/tmp', 'lua-stack'))
   } catch (e) {
     console.error(e)
   }
