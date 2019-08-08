@@ -34,11 +34,21 @@ async function refreshIndex(repository) {
 
 /**
  * Adds path to index
+ * Finally you have to call writeIndex to fix all index changes
  * @param {Index} index
  * @param {String} path
  */
 async function addToIndex(index, path) {
   return index.addByPath(path)
+}
+/**
+ * Removes path from index
+ * Finally you have to call writeIndex to fix all index changes
+ * @param {Index} index
+ * @param {String} path
+ */
+async function removeFromIndex(index, path) {
+  return index.removeByPath(path)
 }
 
 /**
@@ -139,6 +149,12 @@ async function checkout(repo, branch = 'master') {
   })
 }
 
+async function checkoutRemoteBranch(repo, branchName) {
+  await checkout(repo, branchName)
+  const commit = await repo.getReferenceCommit(`refs/remotes/origin/${branchName}`)
+  await nodegit.Reset.reset(repo, commit, 3, {})
+}
+
 /**
  * Clones remote repository
  * @param {String} url- repo remote url
@@ -146,7 +162,7 @@ async function checkout(repo, branch = 'master') {
  * @param {String} [username] - optional username
  * @param {String} [password] - optional password
  */
-const cloneRepo = async (url, path, username, password) => {
+async function cloneRepo(url, path, username, password) {
   return await nodegit.Clone(url, path, {
     fetchOpts: {
       callbacks: {
@@ -155,6 +171,49 @@ const cloneRepo = async (url, path, username, password) => {
         credentials: username && password ? () => nodegit.Cred.userpassPlaintextNew(username, password) : null,
         transferProgress: progress => console.log('clone progress:', progress)
       }
+    }
+  })
+}
+
+async function fetch(repo, username, password) {
+  return await repo.fetch('origin', {
+    fetchOpts: {
+      callbacks: {
+        // github will fail cert check on some OSX machines, this overrides that check
+        certificateCheck: () => 0,
+        credentials: username && password ? () => nodegit.Cred.userpassPlaintextNew(username, password) : null,
+        transferProgress: progress => console.log('clone progress:', progress)
+      }
+    }
+  })
+}
+
+async function pull(repo, username, password) {
+  await repo.fetchAll({
+    fetchOpts: {
+      callbacks: {
+        // github will fail cert check on some OSX machines, this overrides that check
+        certificateCheck: () => 0,
+        credentials: username && password ? () => nodegit.Cred.userpassPlaintextNew(username, password) : null
+        // transferProgress: progress => console.log('clone progress:', progress)
+      }
+    }
+  })
+
+  await repo.mergeBranches('master', 'origin/master')
+}
+
+async function addRemote(repo, url) {
+  return nodegit.Remote.create(repo, 'origin', url)
+}
+
+async function push(remote, username, password) {
+  await remote.push(['refs/heads/master:refs/heads/master'], {
+    callbacks: {
+      // github will fail cert check on some OSX machines, this overrides that check
+      certificateCheck: () => 0,
+      credentials: username && password ? () => nodegit.Cred.userpassPlaintextNew(username, password) : null
+      // transferProgress: progress => console.log('clone progress:', progress)
     }
   })
 }
@@ -208,10 +267,12 @@ const cloneRepositoryAndCreateBranch = async () => {
 
   await checkout(repo)
 
+  // Get the current branch
   const branchRef = await repo.getCurrentBranch()
   const branchName = branchRef.shorthand()
   console.log(`On ${branchName} ${branchRef.target()}`)
 
+  // Get the commit that the branch points at
   const commit = await repo.getBranchCommit(branchName)
   const newBranchRef = await createBranch(repo, 'mybranch', commit)
   console.log(`On ${newBranchRef.shorthand()} ${newBranchRef.target()}`)
