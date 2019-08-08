@@ -82,6 +82,16 @@ async function status(repo) {
   return statuses.map(file => ({ path: file.path(), status: fileStatus(file) }))
 }
 
+async function createTag(repo, commitId, tagName, tagMessage) {
+  const oid = nodegit.Oid.fromString(commitId)
+  const tag = await repo.createTag(oid, tagName, tagMessage)
+  console.log('TAG:', tag)
+}
+
+async function deleteTagByName(repo, tagName) {
+  await repo.deleteTagByName(tagName)
+}
+
 ;(async () => {
   try {
     const repo = await createRepository(resolve('/tmp/gitops'))
@@ -94,7 +104,7 @@ async function status(repo) {
 
     await addToIndex(index, join('src', 'index.js'))
 
-    const oid = await writeIndex(index)
+    const treeOid = await writeIndex(index)
 
     const statuses = await status(repo)
     for (const { path, status } of statuses) {
@@ -108,11 +118,22 @@ async function status(repo) {
     const author = nodegit.Signature.now('Igor Kling', 'klingiv@altarix.ru')
     const committer = author
 
-    const commitId = await repo.createCommit('HEAD', author, committer, 'message', oid, []) // first commit has no parents
-    console.log('commitId:', commitId.toString())
+    const commit = await repo.createCommit(
+      'HEAD' /* or null to do not update the HEAD */,
+      author,
+      committer,
+      'commit message',
+      treeOid,
+      []
+    ) // first commit has no parents
+    console.log('commitId:', commit.toString())
 
     const head = await nodegit.Reference.nameToId(repo, 'HEAD')
     console.log('HEAD:', head.toString())
+
+    // await createTag(repo, commit.toString(), 'MYTAG', 'Tag message...')
+
+    // await deleteTagByName(repo, 'MYTAG')
   } catch (e) {
     console.error(e)
   }
